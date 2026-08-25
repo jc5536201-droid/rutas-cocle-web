@@ -30,6 +30,81 @@ st.set_page_config(
 
 CARPETA_IMAGENES = os.path.join(os.path.dirname(__file__), "imagenes")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ESTILO VISUAL (CSS propio sobre Streamlit)
+# ═══════════════════════════════════════════════════════════════════════════
+
+st.markdown("""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap');
+
+html, body, [class*="css"]  { font-family: 'Inter', sans-serif; }
+h1, h2, h3, .hero-title { font-family: 'Poppins', sans-serif; }
+
+/* Oculta el menú y el footer por defecto de Streamlit para look más limpio */
+#MainMenu {visibility: hidden;}
+footer {visibility: hidden;}
+
+/* ---- Hero de portada ---- */
+.hero {
+    background: linear-gradient(120deg, #0F6E56 0%, #1D9E75 55%, #378ADD 130%);
+    border-radius: 18px;
+    padding: 42px 40px;
+    color: white;
+    margin-bottom: 28px;
+    box-shadow: 0 10px 30px rgba(15,110,86,0.25);
+}
+.hero-title { font-size: 2.1rem; font-weight: 800; margin: 0 0 8px 0; color: white; }
+.hero-sub { font-size: 1.02rem; opacity: 0.92; max-width: 640px; line-height: 1.5; }
+.hero-badges { margin-top: 18px; }
+.hero-badge {
+    display: inline-block; background: rgba(255,255,255,0.18);
+    border: 1px solid rgba(255,255,255,0.35); border-radius: 999px;
+    padding: 5px 14px; margin-right: 8px; font-size: 0.82rem; font-weight: 600;
+}
+
+/* ---- Tarjetas métricas ---- */
+div[data-testid="stMetric"] {
+    background: white; border-radius: 14px; padding: 14px 18px;
+    border: 1px solid #E7ECEA; box-shadow: 0 2px 10px rgba(20,40,35,0.04);
+}
+
+/* ---- Tarjetas genéricas (contenedores con borde) ---- */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    border-radius: 14px !important;
+    border: 1px solid #E7ECEA !important;
+    box-shadow: 0 2px 10px rgba(20,40,35,0.05);
+    transition: box-shadow 0.15s ease, transform 0.15s ease;
+}
+div[data-testid="stVerticalBlockBorderWrapper"]:hover {
+    box-shadow: 0 8px 22px rgba(20,40,35,0.10);
+    transform: translateY(-2px);
+}
+
+/* ---- Botones ---- */
+.stButton>button, .stDownloadButton>button {
+    border-radius: 10px; font-weight: 600; border: none;
+    background: #1D9E75; color: white; padding: 8px 18px;
+    transition: background 0.15s ease;
+}
+.stButton>button:hover, .stDownloadButton>button:hover { background: #0F6E56; color: white; }
+
+/* ---- Sidebar ---- */
+section[data-testid="stSidebar"] {
+    background: #F3F6F4;
+    border-right: 1px solid #E4EAE7;
+}
+section[data-testid="stSidebar"] .stRadio > label { font-weight: 600; }
+
+/* ---- Chips de tipo/distrito ---- */
+.chip {
+    display: inline-block; padding: 3px 11px; border-radius: 999px;
+    font-size: 0.78rem; font-weight: 600; margin-right: 6px;
+    background: #EAF6F1; color: #0F6E56; border: 1px solid #CFEBDF;
+}
+</style>
+""", unsafe_allow_html=True)
+
 
 def imagen_de(cod: str):
     """Busca imagenes/<COD>.jpg|.jpeg|.png; devuelve la ruta si existe, si no None."""
@@ -281,16 +356,27 @@ seccion = st.sidebar.radio(
 # ═══════════════════════════════════════════════════════════════════════════
 
 if seccion == "🏠 Inicio":
-    st.title("Optimización de Rutas Turísticas — Provincia de Coclé, Panamá")
-    st.markdown("Plataforma web construida sobre el algoritmo de **Dijkstra** aplicado a un grafo de "
-                "**21 atractivos turísticos** y **32 conexiones**, con tres criterios de optimización: "
-                "distancia, tiempo y costo.")
+    st.markdown("""
+    <div class="hero">
+        <div class="hero-title">🗺️ Rutas Turísticas Óptimas — Provincia de Coclé, Panamá</div>
+        <div class="hero-sub">Plataforma construida sobre el algoritmo de <b>Dijkstra</b>, aplicado a un
+        grafo de 21 atractivos turísticos y 32 conexiones, con tres criterios de optimización:
+        distancia, tiempo y costo.</div>
+        <div class="hero-badges">
+            <span class="hero-badge">📍 21 nodos</span>
+            <span class="hero-badge">🔗 32 aristas</span>
+            <span class="hero-badge">📅 7 itinerarios</span>
+            <span class="hero-badge">🎓 Universidad de Panamá</span>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+
     c1, c2, c3 = st.columns(3)
     c1.metric("Nodos (atractivos)", G.number_of_nodes())
     c2.metric("Aristas (conexiones)", G.number_of_edges())
     c3.metric("Itinerarios diseñados", len(DIAS_CONFIG))
 
-    st.subheader("Vista previa de algunos atractivos")
+    st.subheader("✨ Vista previa de algunos atractivos")
     destacados = [15, 21, 10, 13]  # Penonomé, Cerro Gaital, El Caño, El Chorro Las Yayas
     cols = st.columns(len(destacados))
     for col, nid in zip(cols, destacados):
@@ -307,18 +393,29 @@ if seccion == "🏠 Inicio":
 # ═══════════════════════════════════════════════════════════════════════════
 
 elif seccion == "📋 Inventario":
-    st.title("Inventario de Atractivos Turísticos")
+    st.markdown('<div class="hero-title" style="color:#0F6E56;">📋 Inventario de Atractivos Turísticos</div>', unsafe_allow_html=True)
+    st.write("")
     filtro_tipo = st.multiselect("Filtrar por tipo:", sorted({d["tipo"] for d in ATRACTIVOS.values()}))
     for nid, data in sorted(ATRACTIVOS.items()):
         if filtro_tipo and data["tipo"] not in filtro_tipo:
             continue
+        color = COLORES_TIPO.get(data["tipo"], "#999999")
         with st.container(border=True):
             c_img, c_info = st.columns([1, 3])
             with c_img:
                 mostrar_imagen(data["cod"], data["nombre"], ancho=180)
             with c_info:
-                st.markdown(f"**{data['nombre']}**  ·  `{data['cod']}`")
-                st.caption(f"{data['tipo']} — Distrito de {data['distrito']}")
+                st.markdown(
+                    f"""<span style="font-size:1.1rem;font-weight:700;color:#1A2E29;">{data['nombre']}</span>
+                    &nbsp;<code>{data['cod']}</code>""",
+                    unsafe_allow_html=True,
+                )
+                st.markdown(
+                    f"""<span class="chip" style="background:{color}22;color:{color};border-color:{color}55;">{data['tipo']}</span>
+                    <span class="chip">📍 {data['distrito']}</span>""",
+                    unsafe_allow_html=True,
+                )
+                st.write("")
                 cc1, cc2 = st.columns(2)
                 cc1.write(f"⭐ Puntaje: **{data['puntaje']}**")
                 cc2.write(f"🔗 Conexiones: **{G.degree(nid)}**")
@@ -339,7 +436,8 @@ elif seccion == "🕸️ Grafo completo":
 # ═══════════════════════════════════════════════════════════════════════════
 
 elif seccion == "📅 Ruta por día":
-    st.title("Ruta Óptima por Día")
+    st.markdown('<div class="hero-title" style="color:#0F6E56;">📅 Ruta Óptima por Día</div>', unsafe_allow_html=True)
+    st.write("")
     dia = st.selectbox(
         "Elige el día:",
         list(DIAS_CONFIG.keys()),
@@ -355,9 +453,17 @@ elif seccion == "📅 Ruta por día":
         plt.close(fig)
 
         ruta_str = " → ".join(G.nodes[n]["cod"] for n in secuencia)
-        st.success(f"**Ruta óptima:** {ruta_str}  —  **Total:** {costo_total:.1f} {UNIDAD[criterio]}")
+        color_dia = DIAS_CONFIG[dia]["color"]
+        st.markdown(
+            f"""<div style="background:{color_dia}14;border:1px solid {color_dia}55;border-radius:12px;
+            padding:14px 18px;margin:6px 0 18px 0;">
+            <b style="color:{color_dia};">Ruta óptima:</b> {ruta_str}
+            &nbsp;&nbsp;|&nbsp;&nbsp; <b style="color:{color_dia};">Total:</b> {costo_total:.1f} {UNIDAD[criterio]}
+            </div>""",
+            unsafe_allow_html=True,
+        )
 
-        st.subheader("Detalle del tramo")
+        st.subheader("📋 Detalle del tramo")
         filas = []
         tot_d = tot_t = tot_c = 0
         for i in range(len(secuencia) - 1):
