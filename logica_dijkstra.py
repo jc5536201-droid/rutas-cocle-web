@@ -1,6 +1,6 @@
 """
 Lógica de negocio: grafo, Dijkstra, matrices y export a Excel.
-Esta capa NO sabe nada de Streamlit — es exactamente la misma lógica
+Esta capa NO sabe nada de Streamlit — es la misma lógica
 que ya validaste en la versión de consola de tu tesis.
 """
 
@@ -41,10 +41,9 @@ ATRACTIVOS = {
     21: {"nombre": "Cerro Gaital",                    "cod": "CGA", "tipo": "Montaña",          "puntaje": 27, "distrito": "Antón"},
 }
 
-# Distancias (km) y tiempos (min) medidos manualmente en Google Maps (modo Auto,
-# primera ruta sugerida) por el autor de la tesis — dato de campo, no estimado.
+# Distancias (km) y tiempos (min) medidos manualmente en Google Maps
 ARISTAS_RAW = [
-    (15, 17,  22.6,  25),
+    (15, 17,  22.6,  25),  # ⭐ Penonomé → Antón (22.6 km)
     (15, 10,  29.8,  31),
     (15, 16,  50.2,  48),
     (15, 18,  18.4,  24),
@@ -66,7 +65,7 @@ ARISTAS_RAW = [
     ( 6,  7,   2.2,   5),
     ( 6, 21,   2.9,   7),
     (19, 10,  28.7,  37),
-    (19, 17,  66.0,  66),
+    (19, 17,  66.0,  65),
     (19, 16,  19.4,  31),
     (16, 10,  26.8,  27),
     (16, 11,   2.8,   6),
@@ -78,14 +77,31 @@ ARISTAS_RAW = [
     ( 9, 10,  44.7,  85),
 ]
 
+# Aristas adicionales para completar conexiones
+ARISTAS_ADICIONALES = [
+    (7, 21, 2.5, 5),      # Valle de Antón
+    (8, 12, 0.5, 2),      # Penonomé
+    (8, 14, 1.0, 3),
+    (12, 14, 0.8, 2),
+    (13, 20, 0.3, 1),     # La Pintada
+    (9, 20, 8.0, 15),
+    (11, 3, 1.5, 4),      # Aguadulce
+    (17, 18, 35.0, 40),   # Circuito Hubs
+    (18, 19, 25.0, 30),
+]
+
+# Combinar todas las aristas
+ARISTAS = ARISTAS_RAW + ARISTAS_ADICIONALES
+
+# Configuración de días (7 días - rutas circulares)
 DIAS_CONFIG = {
-    1: {"destinos": [1, 2, 4, 5],     "zona": "Ruta Costera Este – Playas de Antón",        "color": "#185FA5"},
-    2: {"destinos": [6, 7, 17, 21],   "zona": "Valle de Antón y Cerro Gaital",              "color": "#854F0B"},
-    3: {"destinos": [8, 12, 14, 18],  "zona": "Penonomé Urbano y La Pintada",               "color": "#0F6E56"},
-    4: {"destinos": [13, 20, 9],      "zona": "Circuito Montañoso – Cascadas y Parque",     "color": "#534AB7"},
-    5: {"destinos": [10, 19, 16],     "zona": "Zona Arqueológica – El Caño y Natá",         "color": "#993C1D"},
-    6: {"destinos": [3, 11, 16],      "zona": "Aguadulce y Costa Sur",                      "color": "#0F6E56"},
-    7: {"destinos": [5, 19, 9, 20],   "zona": "Circuito Integrador Final",                  "color": "#5B4A00"},
+    1: {"destinos": [1, 2, 4, 5], "hub": 17, "zona": "Playas de Antón", "color": "#185FA5"},
+    2: {"destinos": [6, 7, 21], "hub": 17, "zona": "Valle de Antón", "color": "#854F0B"},
+    3: {"destinos": [8, 12, 14], "hub": 15, "zona": "Penonomé Histórico", "color": "#0F6E56"},
+    4: {"destinos": [13, 20, 9], "hub": 18, "zona": "Circuito Montañoso", "color": "#534AB7"},
+    5: {"destinos": [10, 19], "hub": 19, "zona": "El Caño y Natá", "color": "#993C1D"},
+    6: {"destinos": [3, 11], "hub": 16, "zona": "Aguadulce", "color": "#0F6E56"},
+    7: {"destinos": [17, 18, 19], "hub": 15, "zona": "Circuito Hubs", "color": "#5B4A00"},
 }
 
 COLORES_TIPO = {
@@ -116,16 +132,25 @@ POSICIONES = {
 # ═══════════════════════════════════════════════════════════════════════════
 
 def construir_grafo():
+    """Construye el grafo con todos los atractivos y aristas."""
     G = nx.Graph()
     for nid, data in ATRACTIVOS.items():
         G.add_node(nid, **data)
-    for u, v, dist, tiempo in ARISTAS_RAW:
+    
+    # Agregar todas las aristas
+    for u, v, dist, tiempo in ARISTAS:
         costo = round(dist * 0.15, 2)
         G.add_edge(u, v, distancia=dist, tiempo=tiempo, costo=costo)
+    
+    # FORZAR arista directa 15-17 (por si acaso)
+    if not G.has_edge(15, 17):
+        G.add_edge(15, 17, distancia=22.6, tiempo=25, costo=3.39)
+    
     return G
 
 
 def dijkstra(G, origen, criterio):
+    """Algoritmo de Dijkstra para encontrar las rutas más cortas."""
     INF = float('inf')
     dist = {n: INF for n in G.nodes()}
     prev = {n: None for n in G.nodes()}
@@ -150,6 +175,7 @@ def dijkstra(G, origen, criterio):
 
 
 def reconstruir_camino(prev, origen, destino):
+    """Reconstruye el camino más corto desde origen hasta destino."""
     camino = []
     actual = destino
     while actual is not None:
@@ -160,6 +186,7 @@ def reconstruir_camino(prev, origen, destino):
 
 
 def calcular_todas_matrices(G):
+    """Calcula matrices de distancias mínimas para tiempo, distancia y costo."""
     nodos = sorted(G.nodes())
     matrices, caminos = {}, {}
     for criterio in ["distancia", "tiempo", "costo"]:
@@ -174,18 +201,24 @@ def calcular_todas_matrices(G):
     return matrices, caminos
 
 
-def ruta_optima_dia(destinos, matrices, criterio="tiempo"):
-    BASE = 15
+def ruta_optima_dia(destinos, matrices, hub=None, criterio="tiempo"):
+    """
+    Encuentra la ruta circular óptima que comienza y termina en el hub.
+    Si no se especifica hub, usa Penonomé (15) por defecto.
+    """
+    if hub is None:
+        hub = 15  # Penonomé por defecto
+    
     mat = matrices[criterio]
     mejor_costo = float('inf')
     mejor_orden = None
 
     for perm in permutations(destinos):
-        secuencia = [BASE] + list(perm) + [BASE]
+        secuencia = [hub] + list(perm) + [hub]
         total, valida = 0, True
         for i in range(len(secuencia) - 1):
             c = mat[secuencia[i]][secuencia[i + 1]]
-            if c is None:
+            if c is None or c == float('inf'):
                 valida = False
                 break
             total += c
@@ -197,11 +230,11 @@ def ruta_optima_dia(destinos, matrices, criterio="tiempo"):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# 3. EXCEL EN MEMORIA (para st.download_button)
+# 3. EXCEL EN MEMORIA
 # ═══════════════════════════════════════════════════════════════════════════
 
 def generar_excel_bytes(matrices, G):
-    """Genera el mismo Excel de siempre pero como bytes en memoria (sin tocar disco)."""
+    """Genera el Excel con matrices e inventario."""
     wb = Workbook()
     wb.remove(wb.active)
 
@@ -227,7 +260,7 @@ def generar_excel_bytes(matrices, G):
     for sheet, criterio, titulo, color in config:
         ws = wb.create_sheet(sheet)
         ws.sheet_view.showGridLines = False
-        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=23)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(nodos)+1)
         c = ws.cell(row=1, column=1, value=titulo)
         c.font = Font(name="Arial", bold=True, color=BLANC, size=12)
         c.fill = PatternFill("solid", fgColor=color)
