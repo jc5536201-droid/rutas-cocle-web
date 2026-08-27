@@ -2,9 +2,13 @@
 PLATAFORMA WEB - OPTIMIZACIÓN DE RUTAS TURÍSTICAS
 Provincia de Coclé, Panamá
 28 Atractivos | 7 Itinerarios | Algoritmo de Dijkstra
+TODO EN UN SOLO ARCHIVO - SIN IMPORTACIONES EXTERNAS
 """
 
 import os
+import heapq
+from itertools import permutations
+from io import BytesIO
 import streamlit as st
 import matplotlib
 matplotlib.use("Agg")
@@ -12,15 +16,330 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import networkx as nx
 import pandas as pd
-
-from logica_dijkstra import (
-    ATRACTIVOS, DIAS_CONFIG, COLORES_TIPO, POSICIONES,
-    construir_grafo, calcular_todas_matrices, ruta_optima_dia,
-    generar_excel_bytes, diagnosticar_grafo
-)
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
 # ═══════════════════════════════════════════════════════════════════════════
-# CONFIGURACIÓN DE PÁGINA
+# 1. ATRACTIVOS TURÍSTICOS (28 NODOS)
+# ═══════════════════════════════════════════════════════════════════════════
+
+ATRACTIVOS = {
+    # === PLAYAS (Costa Pacífica) ===
+    1: {"nombre": "Playa Santa Clara", "cod": "PSC", "tipo": "Playa", "puntaje": 27, "distrito": "Antón"},
+    2: {"nombre": "Playa Farallón", "cod": "PFA", "tipo": "Playa", "puntaje": 26, "distrito": "Antón"},
+    3: {"nombre": "Playa El Salado", "cod": "PES", "tipo": "Playa", "puntaje": 21, "distrito": "Aguadulce"},
+    4: {"nombre": "Playa Blanca", "cod": "PBL", "tipo": "Playa", "puntaje": 26, "distrito": "Antón"},
+    5: {"nombre": "Playa Juan Hombrón", "cod": "PJH", "tipo": "Playa", "puntaje": 20, "distrito": "Antón"},
+    26: {"nombre": "Playa La Hueca", "cod": "PLH", "tipo": "Playa", "puntaje": 22, "distrito": "Antón"},
+    
+    # === CULTURA E HISTORIA ===
+    6: {"nombre": "Mercado Artesanía Valle Antón", "cod": "MAV", "tipo": "Cultural", "puntaje": 26, "distrito": "Antón"},
+    8: {"nombre": "Museo Hermanos Arias Madrid", "cod": "MHA", "tipo": "Cultural/Hist.", "puntaje": 25, "distrito": "Penonomé"},
+    11: {"nombre": "Museo Regional Stella Sierra", "cod": "MSS", "tipo": "Cultural/Hist.", "puntaje": 22, "distrito": "Aguadulce"},
+    25: {"nombre": "Museo de la Sal", "cod": "MSA", "tipo": "Cultural", "puntaje": 21, "distrito": "Aguadulce"},
+    12: {"nombre": "Iglesia San Juan Bautista", "cod": "ISJ", "tipo": "Histórico", "puntaje": 24, "distrito": "Penonomé"},
+    20: {"nombre": "Parroquia Ntra. Sra. Candelaria", "cod": "PNC", "tipo": "Histórico", "puntaje": 21, "distrito": "La Pintada"},
+    
+    # === NATURALEZA Y PARQUES ===
+    7: {"nombre": "Serpentario Maravillas Tropicales", "cod": "SMT", "tipo": "Naturaleza", "puntaje": 24, "distrito": "Antón"},
+    9: {"nombre": "P.N. Omar Torrijos", "cod": "PNT", "tipo": "Parque Nacional", "puntaje": 22, "distrito": "Penonomé"},
+    10: {"nombre": "Sitio Arqueológico El Caño", "cod": "SAC", "tipo": "Arqueológico", "puntaje": 26, "distrito": "Natá"},
+    13: {"nombre": "El Chorro Las Yayas", "cod": "CLY", "tipo": "Cascada", "puntaje": 25, "distrito": "La Pintada"},
+    14: {"nombre": "Balneario Las Mendozas", "cod": "BLM", "tipo": "Balneario", "puntaje": 21, "distrito": "Penonomé"},
+    21: {"nombre": "Cerro Gaital", "cod": "CGA", "tipo": "Montaña", "puntaje": 27, "distrito": "Antón"},
+    22: {"nombre": "Manglares de Aguadulce", "cod": "MAG", "tipo": "Naturaleza", "puntaje": 23, "distrito": "Aguadulce"},
+    23: {"nombre": "Cerro El Valle", "cod": "CEV", "tipo": "Montaña", "puntaje": 24, "distrito": "Antón"},
+    24: {"nombre": "Balneario El Copé", "cod": "BEC", "tipo": "Balneario", "puntaje": 22, "distrito": "La Pintada"},
+    27: {"nombre": "Cerro La Cruz", "cod": "CLC", "tipo": "Montaña", "puntaje": 23, "distrito": "Penonomé"},
+    28: {"nombre": "Mirador de Natá", "cod": "MIN", "tipo": "Mirador", "puntaje": 22, "distrito": "Natá"},
+    
+    # === CIUDADES / HUBS ===
+    15: {"nombre": "Penonomé", "cod": "PEN", "tipo": "Hub/Ciudad", "puntaje": 28, "distrito": "Penonomé"},
+    16: {"nombre": "Aguadulce", "cod": "AGU", "tipo": "Hub/Ciudad", "puntaje": 25, "distrito": "Aguadulce"},
+    17: {"nombre": "Antón", "cod": "ANT", "tipo": "Hub/Ciudad", "puntaje": 23, "distrito": "Antón"},
+    18: {"nombre": "La Pintada", "cod": "LAP", "tipo": "Hub/Ciudad", "puntaje": 22, "distrito": "La Pintada"},
+    19: {"nombre": "Natá", "cod": "NAT", "tipo": "Hub/Ciudad", "puntaje": 23, "distrito": "Natá"},
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 2. ARISTAS - CONEXIONES VIALES (44 ARISTAS)
+# ═══════════════════════════════════════════════════════════════════════════
+
+ARISTAS = [
+    # === CONEXIONES PRINCIPALES (Panamericana y rutas principales) ===
+    (15, 17, 35.0, 35),   # Penonomé ↔ Antón
+    (15, 16, 52.2, 48),   # Penonomé ↔ Aguadulce
+    (15, 18, 26.0, 30),   # Penonomé ↔ La Pintada
+    (15, 19, 67.0, 67),   # Penonomé ↔ Natá
+    (15, 8, 2.5, 5),      # Penonomé ↔ Museo Hnos. Arias
+    (15, 12, 2.0, 4),     # Penonomé ↔ Iglesia San Juan
+    (15, 14, 3.0, 6),     # Penonomé ↔ Balneario Mendozas
+    (15, 21, 42.6, 40),   # Penonomé ↔ Cerro Gaital
+    (15, 10, 78.0, 55),   # Penonomé ↔ El Caño
+    (19, 10, 8.0, 12),    # Natá ↔ El Caño
+    (19, 16, 28.0, 32),   # Natá ↔ Aguadulce
+    (19, 17, 32.0, 35),   # Natá ↔ Antón
+    (16, 10, 26.8, 27),   # Aguadulce ↔ El Caño
+    (16, 11, 5.0, 8),     # Aguadulce ↔ Museo Stella Sierra
+    (16, 3, 8.5, 12),     # Aguadulce ↔ Playa El Salado
+    (18, 9, 35.0, 50),    # La Pintada ↔ Omar Torrijos
+    (18, 13, 14.0, 20),   # La Pintada ↔ El Chorro Las Yayas
+    (18, 20, 0.5, 2),     # La Pintada ↔ Parroquia Candelaria
+    (17, 1, 18.0, 20),    # Antón ↔ Playa Santa Clara
+    (17, 2, 20.5, 22),    # Antón ↔ Playa Farallón
+    (17, 4, 22.0, 24),    # Antón ↔ Playa Blanca
+    (17, 5, 14.5, 16),    # Antón ↔ Playa Juan Hombrón
+    (17, 6, 22.0, 25),    # Antón ↔ Mercado Artesanía
+    (17, 7, 22.5, 26),    # Antón ↔ Serpentario
+    (17, 21, 10.0, 15),   # Antón ↔ Cerro Gaital
+    (1, 2, 6.8, 11),      # P. Santa Clara ↔ P. Farallón
+    (2, 4, 2.5, 5),       # P. Farallón ↔ P. Blanca
+    (4, 5, 9.5, 12),      # P. Blanca ↔ P. Juan Hombrón
+    (1, 5, 17.0, 20),     # P. Santa Clara ↔ P. Juan Hombrón
+    (6, 7, 0.5, 2),       # Mercado ↔ Serpentario
+    (6, 21, 38.0, 45),    # Mercado ↔ Cerro Gaital
+    (9, 13, 12.0, 18),    # Omar Torrijos ↔ El Chorro
+    (9, 10, 39.7, 65),    # Omar Torrijos ↔ El Caño
+    
+    # === NUEVAS ARISTAS (Nodos 22-28) ===
+    (16, 22, 3.5, 5),     # Aguadulce ↔ Manglares
+    (16, 25, 2.0, 4),     # Aguadulce ↔ Museo de la Sal
+    (22, 25, 1.5, 3),     # Manglares ↔ Museo de la Sal
+    (17, 23, 8.0, 12),    # Antón ↔ Cerro El Valle
+    (17, 26, 15.0, 18),   # Antón ↔ Playa La Hueca
+    (23, 26, 12.0, 15),   # Cerro El Valle ↔ Playa La Hueca
+    (18, 24, 12.0, 18),   # La Pintada ↔ Balneario El Copé
+    (24, 9, 18.0, 25),    # El Copé ↔ Omar Torrijos
+    (15, 27, 3.0, 6),     # Penonomé ↔ Cerro La Cruz
+    (19, 28, 2.5, 5),     # Natá ↔ Mirador de Natá
+    (28, 10, 6.0, 10),    # Mirador ↔ El Caño
+]
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 3. CONFIGURACIÓN DE DÍAS (7 RUTAS CIRCULARES)
+# ═══════════════════════════════════════════════════════════════════════════
+
+DIAS_CONFIG = {
+    1: {"destinos": [1, 2, 4, 5], "hub": 17, "zona": "Ruta Costera Norte – Playas de Antón", "color": "#185FA5"},
+    2: {"destinos": [6, 7, 23, 21], "hub": 17, "zona": "Valle de Antón y Montañas", "color": "#854F0B"},
+    3: {"destinos": [8, 12, 27, 14], "hub": 15, "zona": "Penonomé Cultural y Natural", "color": "#0F6E56"},
+    4: {"destinos": [13, 24, 9, 20], "hub": 18, "zona": "Circuito Montañoso – Cascadas y Parque", "color": "#534AB7"},
+    5: {"destinos": [3, 25, 22, 11, 16], "hub": 16, "zona": "Aguadulce – Costa Sur y Cultura", "color": "#993C1D"},
+    6: {"destinos": [28, 10, 19], "hub": 19, "zona": "Zona Arqueológica – El Caño y Natá", "color": "#0F6E56"},
+    7: {"destinos": [26, 5, 17, 19, 28], "hub": 15, "zona": "Circuito Integrador – Costa, Hubs y Miradores", "color": "#5B4A00"},
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 4. COLORES Y POSICIONES
+# ═══════════════════════════════════════════════════════════════════════════
+
+COLORES_TIPO = {
+    "Hub/Ciudad": "#1D9E75",
+    "Playa": "#378ADD",
+    "Cultural": "#BA7517",
+    "Cultural/Hist.": "#BA7517",
+    "Histórico": "#BA7517",
+    "Naturaleza": "#7F77DD",
+    "Parque Nacional": "#7F77DD",
+    "Cascada": "#7F77DD",
+    "Balneario": "#7F77DD",
+    "Arqueológico": "#D85A30",
+    "Montaña": "#7F77DD",
+    "Mirador": "#FF6B35",
+}
+
+POSICIONES = {
+    15: (0.50, 0.50), 17: (0.74, 0.42), 16: (0.22, 0.20), 18: (0.36, 0.74),
+    19: (0.40, 0.26), 1: (0.94, 0.62), 2: (0.94, 0.50), 3: (0.10, 0.10),
+    4: (0.92, 0.38), 5: (0.84, 0.26), 6: (0.82, 0.68), 7: (0.94, 0.74),
+    8: (0.44, 0.44), 9: (0.18, 0.82), 10: (0.30, 0.30), 11: (0.10, 0.24),
+    12: (0.58, 0.44), 13: (0.20, 0.90), 14: (0.50, 0.36), 20: (0.28, 0.84),
+    21: (0.80, 0.82), 22: (0.15, 0.15), 23: (0.88, 0.78), 24: (0.28, 0.78),
+    25: (0.18, 0.18), 26: (0.90, 0.20), 27: (0.56, 0.56), 28: (0.34, 0.28),
+}
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 5. ALGORITMO DE DIJKSTRA
+# ═══════════════════════════════════════════════════════════════════════════
+
+def construir_grafo():
+    G = nx.Graph()
+    for nid, data in ATRACTIVOS.items():
+        G.add_node(nid, **data)
+    for u, v, dist, tiempo in ARISTAS:
+        costo = round(dist * 0.15, 2)
+        G.add_edge(u, v, distancia=dist, tiempo=tiempo, costo=costo)
+    return G
+
+
+def dijkstra(G, origen, criterio):
+    INF = float('inf')
+    dist = {n: INF for n in G.nodes()}
+    prev = {n: None for n in G.nodes()}
+    dist[origen] = 0
+    heap = [(0, origen)]
+    visitados = set()
+
+    while heap:
+        d_u, u = heapq.heappop(heap)
+        if u in visitados:
+            continue
+        visitados.add(u)
+        for v in G.neighbors(u):
+            peso = G[u][v][criterio]
+            alt = dist[u] + peso
+            if alt < dist[v]:
+                dist[v] = alt
+                prev[v] = u
+                heapq.heappush(heap, (alt, v))
+    return dist, prev
+
+
+def reconstruir_camino(prev, origen, destino):
+    camino = []
+    actual = destino
+    while actual is not None:
+        camino.append(actual)
+        actual = prev[actual]
+    camino.reverse()
+    return camino if camino and camino[0] == origen else []
+
+
+def calcular_todas_matrices(G):
+    nodos = sorted(G.nodes())
+    matrices, caminos = {}, {}
+    for criterio in ["distancia", "tiempo", "costo"]:
+        mat, cam = {}, {}
+        for origen in nodos:
+            dist_min, prev = dijkstra(G, origen, criterio)
+            mat[origen] = {d: round(dist_min[d], 2) if dist_min[d] != float('inf') else None
+                          for d in nodos}
+            cam[origen] = {d: reconstruir_camino(prev, origen, d) for d in nodos}
+        matrices[criterio] = mat
+        caminos[criterio] = cam
+    return matrices, caminos
+
+
+def ruta_optima_dia(destinos, matrices, hub=None, criterio="tiempo"):
+    if hub is None:
+        hub = 15
+    mat = matrices[criterio]
+    mejor_costo = float('inf')
+    mejor_orden = None
+
+    for perm in permutations(destinos):
+        secuencia = [hub] + list(perm) + [hub]
+        total, valida = 0, True
+        for i in range(len(secuencia) - 1):
+            c = mat[secuencia[i]][secuencia[i + 1]]
+            if c is None or c == float('inf'):
+                valida = False
+                break
+            total += c
+        if valida and total < mejor_costo:
+            mejor_costo = total
+            mejor_orden = list(perm)
+
+    return mejor_orden, mejor_costo
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 6. EXPORTACIÓN A EXCEL
+# ═══════════════════════════════════════════════════════════════════════════
+
+def generar_excel_bytes(matrices, G):
+    wb = Workbook()
+    wb.remove(wb.active)
+
+    AZUL, VERDE, NARAN, GRIS, BLANC = "1F4E79", "1D9E75", "C55A11", "F2F2F2", "FFFFFF"
+
+    def celda(ws, fila, col, valor, bold=False, bg=None, color="000000", alinear="center", size=10):
+        c = ws.cell(row=fila, column=col, value=valor)
+        c.font = Font(name="Arial", bold=bold, color=color, size=size)
+        if bg:
+            c.fill = PatternFill("solid", fgColor=bg)
+        c.alignment = Alignment(horizontal=alinear, vertical="center", wrap_text=True)
+        lado = Side(style="thin", color="AAAAAA")
+        c.border = Border(left=lado, right=lado, top=lado, bottom=lado)
+        return c
+
+    config = [
+        ("Matriz_Tiempo", "tiempo", "MATRIZ DIJKSTRA – TIEMPO MÍNIMO (minutos)", AZUL),
+        ("Matriz_Distancia", "distancia", "MATRIZ DIJKSTRA – DISTANCIA MÍNIMA (km)", VERDE),
+        ("Matriz_Costo", "costo", "MATRIZ DIJKSTRA – COSTO MÍNIMO (USD)", NARAN),
+    ]
+
+    nodos = sorted(G.nodes())
+    for sheet, criterio, titulo, color in config:
+        ws = wb.create_sheet(sheet)
+        ws.sheet_view.showGridLines = False
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=len(nodos)+1)
+        c = ws.cell(row=1, column=1, value=titulo)
+        c.font = Font(name="Arial", bold=True, color=BLANC, size=12)
+        c.fill = PatternFill("solid", fgColor=color)
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        ws.row_dimensions[1].height = 28
+
+        celda(ws, 2, 1, "O \\ D", bold=True, bg=GRIS, size=8)
+        for j, n in enumerate(nodos, 2):
+            celda(ws, 2, j, f"{n}\n{ATRACTIVOS[n]['cod']}", bold=True, bg=GRIS, size=7)
+            ws.column_dimensions[get_column_letter(j)].width = 9
+        ws.column_dimensions["A"].width = 12
+        ws.row_dimensions[2].height = 28
+
+        mat = matrices[criterio]
+        for i, origen in enumerate(nodos, 3):
+            celda(ws, i, 1, f"{origen} {ATRACTIVOS[origen]['cod']}", bold=True, bg=GRIS, size=8)
+            ws.row_dimensions[i].height = 18
+            for j, destino in enumerate(nodos, 2):
+                if origen == destino:
+                    celda(ws, i, j, 0, bg="D9D9D9", size=8)
+                else:
+                    val = mat[origen][destino]
+                    if val is None:
+                        celda(ws, i, j, "∞", bg="FFE2CC", size=8)
+                    else:
+                        fmt = f"${val:.2f}" if criterio == "costo" else round(val, 1)
+                        bg = GRIS if i % 2 == 0 else BLANC
+                        celda(ws, i, j, fmt, bg=bg, size=8)
+        ws.freeze_panes = "B3"
+
+    # Inventario
+    ws_inv = wb.create_sheet("Inventario_Atractivos")
+    ws_inv.sheet_view.showGridLines = False
+    ws_inv.merge_cells(start_row=1, start_column=1, end_row=1, end_column=8)
+    c = ws_inv.cell(row=1, column=1, value="INVENTARIO DE ATRACTIVOS TURÍSTICOS – COCLÉ, PANAMÁ")
+    c.font = Font(name="Arial", bold=True, color=BLANC, size=12)
+    c.fill = PatternFill("solid", fgColor=AZUL)
+    c.alignment = Alignment(horizontal="center", vertical="center")
+    ws_inv.row_dimensions[1].height = 26
+
+    hdrs = ["ID", "Código", "Nombre", "Tipo", "Distrito", "Puntaje", "Grado", "Tipo Hub"]
+    for j, h in enumerate(hdrs, 1):
+        celda(ws_inv, 2, j, h, bold=True, bg="BDD7EE", size=10)
+
+    for i, (nid, data) in enumerate(ATRACTIVOS.items(), 3):
+        bg = GRIS if i % 2 == 0 else BLANC
+        grado = G.degree(nid)
+        es_hub = "✔" if data["tipo"] == "Hub/Ciudad" else ""
+        for j, val in enumerate([nid, data["cod"], data["nombre"], data["tipo"],
+                                  data["distrito"], data["puntaje"], grado, es_hub], 1):
+            al = "left" if j == 3 else "center"
+            celda(ws_inv, i, j, val, bg=bg, alinear=al, size=10)
+
+    anchos = [5, 7, 38, 20, 14, 9, 8, 9]
+    for j, w in enumerate(anchos, 1):
+        ws_inv.column_dimensions[get_column_letter(j)].width = w
+
+    buffer = BytesIO()
+    wb.save(buffer)
+    buffer.seek(0)
+    return buffer
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 7. CONFIGURACIÓN DE STREAMLIT
 # ═══════════════════════════════════════════════════════════════════════════
 
 st.set_page_config(
@@ -33,90 +352,7 @@ st.set_page_config(
 CARPETA_IMAGENES = os.path.join(os.path.dirname(__file__), "imagenes")
 
 # ═══════════════════════════════════════════════════════════════════════════
-# ESTILO CSS
-# ═══════════════════════════════════════════════════════════════════════════
-
-st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&family=Inter:wght@400;500;600&display=swap');
-
-html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
-h1, h2, h3, .hero-title { font-family: 'Poppins', sans-serif; }
-
-#MainMenu {visibility: hidden;}
-footer {visibility: hidden;}
-
-.hero {
-    background: linear-gradient(120deg, #0F6E56 0%, #1D9E75 55%, #378ADD 130%);
-    border-radius: 18px;
-    padding: 42px 40px;
-    color: white;
-    margin-bottom: 28px;
-    box-shadow: 0 10px 30px rgba(15,110,86,0.25);
-}
-.hero-title { font-size: 2.1rem; font-weight: 800; margin: 0 0 8px 0; color: white; }
-.hero-sub { font-size: 1.02rem; opacity: 0.92; max-width: 640px; line-height: 1.5; }
-.hero-badges { margin-top: 18px; }
-.hero-badge {
-    display: inline-block; background: rgba(255,255,255,0.18);
-    border: 1px solid rgba(255,255,255,0.35); border-radius: 999px;
-    padding: 5px 14px; margin-right: 8px; font-size: 0.82rem; font-weight: 600;
-}
-
-div[data-testid="stMetric"] {
-    background: white; border-radius: 14px; padding: 14px 18px;
-    border: 1px solid #E7ECEA; box-shadow: 0 2px 10px rgba(20,40,35,0.04);
-}
-
-.stButton>button, .stDownloadButton>button {
-    border-radius: 10px; font-weight: 600; border: none;
-    background: #1D9E75; color: white; padding: 8px 18px;
-    transition: background 0.15s ease;
-}
-.stButton>button:hover, .stDownloadButton>button:hover { background: #0F6E56; color: white; }
-
-section[data-testid="stSidebar"] {
-    background: #F3F6F4;
-    border-right: 1px solid #E4EAE7;
-}
-
-.chip {
-    display: inline-block; padding: 3px 11px; border-radius: 999px;
-    font-size: 0.78rem; font-weight: 600; margin-right: 6px;
-    background: #EAF6F1; color: #0F6E56; border: 1px solid #CFEBDF;
-}
-</style>
-""", unsafe_allow_html=True)
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# FUNCIONES AUXILIARES
-# ═══════════════════════════════════════════════════════════════════════════
-
-def imagen_de(cod: str):
-    for ext in (".jpg", ".jpeg", ".png", ".webp"):
-        ruta = os.path.join(CARPETA_IMAGENES, cod + ext)
-        if os.path.isfile(ruta):
-            return ruta
-    return None
-
-
-def mostrar_imagen(cod: str, nombre: str, ancho=None):
-    ruta = imagen_de(cod)
-    if ruta:
-        st.image(ruta, caption=nombre, use_container_width=(ancho is None), width=ancho)
-    else:
-        st.markdown(
-            f"""<div style="border:1px dashed #999;border-radius:8px;padding:18px;
-            text-align:center;color:#888;background:#fafafa;">
-            📷 Sin foto<br><small><code>imagenes/{cod}.jpg</code></small>
-            </div>""",
-            unsafe_allow_html=True,
-        )
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# CARGAR DATOS (CACHE)
+# 8. CARGAR DATOS (CACHE)
 # ═══════════════════════════════════════════════════════════════════════════
 
 @st.cache_resource
@@ -134,7 +370,7 @@ NOMBRE_CRIT = {"distancia": "Distancia mínima (km)", "tiempo": "Tiempo mínimo 
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# FUNCIONES DE DIBUJO
+# 9. FUNCIONES DE DIBUJO
 # ═══════════════════════════════════════════════════════════════════════════
 
 def dibujar_grafo_completo(criterio):
@@ -299,7 +535,7 @@ def dibujar_grafo_dia(dia, criterio, secuencia, costo_total):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# SIDEBAR
+# 10. INTERFAZ DE USUARIO - SIDEBAR
 # ═══════════════════════════════════════════════════════════════════════════
 
 st.sidebar.title("🗺️ Rutas Coclé")
@@ -312,24 +548,45 @@ seccion = st.sidebar.radio(
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
-# INICIO
+# 11. FUNCIONES AUXILIARES DE IMÁGENES
+# ═══════════════════════════════════════════════════════════════════════════
+
+def imagen_de(cod: str):
+    for ext in (".jpg", ".jpeg", ".png", ".webp"):
+        ruta = os.path.join(CARPETA_IMAGENES, cod + ext)
+        if os.path.isfile(ruta):
+            return ruta
+    return None
+
+
+def mostrar_imagen(cod: str, nombre: str, ancho=None):
+    ruta = imagen_de(cod)
+    if ruta:
+        st.image(ruta, caption=nombre, use_container_width=(ancho is None), width=ancho)
+    else:
+        st.markdown(
+            f"""<div style="border:1px dashed #999;border-radius:8px;padding:18px;
+            text-align:center;color:#888;background:#fafafa;">
+            📷 Sin foto<br><small><code>imagenes/{cod}.jpg</code></small>
+            </div>""",
+            unsafe_allow_html=True,
+        )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 12. SECCIONES DE LA APP
 # ═══════════════════════════════════════════════════════════════════════════
 
 if seccion == "🏠 Inicio":
-    st.markdown("""
-    <div class="hero">
-        <div class="hero-title">🗺️ Rutas Turísticas Óptimas — Coclé, Panamá</div>
-        <div class="hero-sub">Plataforma con <b>28 atractivos</b> y <b>44 conexiones</b> viales, optimizadas con el algoritmo de <b>Dijkstra</b>.<br>
-        7 itinerarios diarios de 6-8 horas para que el turista salga desde su hotel y regrese por la tarde.</div>
-        <div class="hero-badges">
-            <span class="hero-badge">📍 28 nodos</span>
-            <span class="hero-badge">🔗 44 aristas</span>
-            <span class="hero-badge">📅 7 días</span>
-            <span class="hero-badge">🏨 5 hubs</span>
-            <span class="hero-badge">🎓 Universidad de Panamá</span>
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+    st.title("🗺️ Rutas Turísticas Óptimas — Coclé, Panamá")
+    st.markdown(f"""
+    **Plataforma con {G.number_of_nodes()} atractivos** y **{G.number_of_edges()} conexiones** viales.
+    
+    - 🏨 5 hubs (ciudades base)
+    - 📅 7 itinerarios diarios
+    - ⏱️ Rutas de 6-8 horas
+    - 🚗 Salida y regreso al hotel
+    """)
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("🏛️ Atractivos", G.number_of_nodes())
@@ -337,23 +594,9 @@ if seccion == "🏠 Inicio":
     col3.metric("📅 Itinerarios", len(DIAS_CONFIG))
     col4.metric("🏨 Hubs", len([d for d in ATRACTIVOS.values() if d["tipo"] == "Hub/Ciudad"]))
 
-    st.subheader("✨ Atractivos destacados")
-    destacados = [15, 21, 10, 13, 28, 26, 24]
-    cols = st.columns(len(destacados))
-    for col, nid in zip(cols, destacados):
-        with col:
-            mostrar_imagen(ATRACTIVOS[nid]["cod"], ATRACTIVOS[nid]["nombre"])
-
-    if not os.path.isdir(CARPETA_IMAGENES) or not os.listdir(CARPETA_IMAGENES):
-        st.info("💡 Coloca imágenes en la carpeta `imagenes/` con el código del atractivo")
-
-# ═══════════════════════════════════════════════════════════════════════════
-# INVENTARIO
-# ═══════════════════════════════════════════════════════════════════════════
-
 elif seccion == "📋 Inventario":
-    st.title("📋 Inventario de Atractivos Turísticos")
-    st.write(f"**Total: {len(ATRACTIVOS)} atractivos** | **{len([d for d in ATRACTIVOS.values() if d['tipo'] == 'Hub/Ciudad'])} hubs**")
+    st.title("📋 Inventario de Atractivos")
+    st.write(f"**Total: {len(ATRACTIVOS)} atractivos**")
 
     filtro_tipo = st.multiselect("Filtrar por tipo:", sorted({d["tipo"] for d in ATRACTIVOS.values()}))
 
@@ -364,27 +607,19 @@ elif seccion == "📋 Inventario":
         with st.container(border=True):
             col1, col2 = st.columns([1, 3])
             with col1:
-                mostrar_imagen(data["cod"], data["nombre"], ancho=180)
+                mostrar_imagen(data["cod"], data["nombre"], ancho=150)
             with col2:
                 st.markdown(f"**{data['nombre']}** `{data['cod']}` (ID: {nid})")
-                st.markdown(f"<span class='chip' style='background:{color}22;color:{color};border-color:{color}55;'>{data['tipo']}</span> <span class='chip'>📍 {data['distrito']}</span>", unsafe_allow_html=True)
+                st.markdown(f"<span style='background:{color}22;color:{color};padding:2px 10px;border-radius:10px;'>{data['tipo']}</span> 📍 {data['distrito']}", unsafe_allow_html=True)
                 st.write(f"⭐ Puntaje: **{data['puntaje']}** | 🔗 Conexiones: **{G.degree(nid)}**")
-
-# ═══════════════════════════════════════════════════════════════════════════
-# GRAFO COMPLETO
-# ═══════════════════════════════════════════════════════════════════════════
 
 elif seccion == "🕸️ Grafo completo":
     st.title("Grafo Turístico Completo")
-    st.write(f"**28 nodos** · **{G.number_of_edges()} aristas** · 3 criterios de optimización")
+    st.write(f"**28 nodos** · **{G.number_of_edges()} aristas**")
     criterio = st.radio("Criterio:", ["distancia", "tiempo", "costo"], horizontal=True)
     fig = dibujar_grafo_completo(criterio)
     st.pyplot(fig, use_container_width=True)
     plt.close(fig)
-
-# ═══════════════════════════════════════════════════════════════════════════
-# RUTA POR DÍA
-# ═══════════════════════════════════════════════════════════════════════════
 
 elif seccion == "📅 Ruta por día":
     st.title("📅 Ruta Óptima por Día")
@@ -406,7 +641,6 @@ elif seccion == "📅 Ruta por día":
     else:
         secuencia = [hub] + orden + [hub]
 
-        # Info del día
         col1, col2, col3, col4 = st.columns(4)
         col1.metric("🏨 Hotel Base", f"{hub} ({ATRACTIVOS[hub]['cod']})")
         col2.metric("🎯 Atractivos", len(destinos))
@@ -414,8 +648,12 @@ elif seccion == "📅 Ruta por día":
         col4.metric("📏 Distancia total", f"{sum(matrices['distancia'][secuencia[i]][secuencia[i+1]] for i in range(len(secuencia)-1)):.1f} km")
 
         st.markdown("### 🚗 Ruta Óptima")
-        ruta_str = " → ".join([f"**{ATRACTIVOS[n]['cod']}**" for n in secuencia])
-        st.markdown(f"{ruta_str}")
+        st.markdown(" → ".join([f"**{ATRACTIVOS[n]['cod']}**" for n in secuencia]))
+
+        # Mapa
+        fig = dibujar_grafo_dia(dia, criterio, secuencia, costo_total)
+        st.pyplot(fig, use_container_width=True)
+        plt.close(fig)
 
         # Tabla de tramos
         st.markdown("### 📋 Detalle de Tramos")
@@ -431,67 +669,6 @@ elif seccion == "📅 Ruta por día":
                 "Costo ($)": matrices["costo"][origen][destino],
             })
         st.dataframe(pd.DataFrame(tramos), use_container_width=True, hide_index=True)
-
-        # Mapa
-        st.markdown("### 🗺️ Mapa de la Ruta")
-        fig = dibujar_grafo_dia(dia, criterio, secuencia, costo_total)
-        st.pyplot(fig, use_container_width=True)
-        plt.close(fig)
-
-        # Itinerario hora a hora
-        st.markdown("### 🕐 Itinerario Hora a Hora")
-
-        hora_actual = 8.0
-        if dia == 7:
-            hora_actual = 7.0
-            st.info("⏰ **Día 7**: Salida recomendada a las 7:00 AM (día más largo)")
-
-        st.markdown(f"**{int(hora_actual):02d}:{int((hora_actual%1)*60):02d}** - 🏁 Salida del hotel (**{ATRACTIVOS[hub]['nombre']}**)")
-
-        for i in range(len(secuencia)-1):
-            origen, destino = secuencia[i], secuencia[i+1]
-            tiempo_viaje = matrices["tiempo"][origen][destino]
-            distancia_viaje = matrices["distancia"][origen][destino]
-            hora_actual += tiempo_viaje / 60
-
-            hh, mm = int(hora_actual), int((hora_actual % 1) * 60)
-            st.markdown(f"**{hh:02d}:{mm:02d}** - 🚗 Llegada a **{ATRACTIVOS[destino]['nombre']}** ({tiempo_viaje:.0f} min, {distancia_viaje:.1f} km)")
-
-            if i < len(secuencia)-2:
-                tiempo_visita = 90
-                hora_actual += tiempo_visita / 60
-                hh, mm = int(hora_actual), int((hora_actual % 1) * 60)
-                st.markdown(f"**{hh:02d}:{mm:02d}** - 🏛️ Fin de visita en **{ATRACTIVOS[destino]['nombre']}** ({tiempo_visita:.0f} min)")
-
-                if i == 1 or i == 3:
-                    hora_actual += 45 / 60
-                    hh, mm = int(hora_actual), int((hora_actual % 1) * 60)
-                    st.markdown(f"**{hh:02d}:{mm:02d}** - 🍽️ Almuerzo (45 min)")
-
-        hh, mm = int(hora_actual), int((hora_actual % 1) * 60)
-        st.markdown(f"**{hh:02d}:{mm:02d}** - 🏁 Regreso al hotel (**{ATRACTIVOS[hub]['nombre']}**) ✅")
-
-        # Resumen
-        st.markdown("### 📊 Resumen del Día")
-        tiempo_visitas = len(destinos) * 90
-        tiempo_almuerzo = 45 if len(destinos) >= 3 else 0
-        total_minutos = costo_total + tiempo_visitas + tiempo_almuerzo
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("🚗 Traslado", f"{costo_total:.0f} min ({costo_total/60:.2f} h)")
-        col2.metric("🏛️ Visitas", f"{tiempo_visitas:.0f} min ({len(destinos)*1.5:.1f} h)")
-        col3.metric("⏱️ Total día", f"{total_minutos:.0f} min ({total_minutos/60:.2f} h)")
-
-        # Galería
-        st.markdown("### 🖼️ Galería de destinos del día")
-        cols = st.columns(len(destinos))
-        for col, nid in zip(cols, destinos):
-            with col:
-                mostrar_imagen(ATRACTIVOS[nid]["cod"], ATRACTIVOS[nid]["nombre"])
-
-# ═══════════════════════════════════════════════════════════════════════════
-# CAMINO MÍNIMO
-# ═══════════════════════════════════════════════════════════════════════════
 
 elif seccion == "🔗 Camino mínimo":
     st.title("🔗 Camino Mínimo entre Dos Nodos")
@@ -511,12 +688,7 @@ elif seccion == "🔗 Camino mínimo":
             st.error("No existe camino entre esos dos nodos.")
         else:
             valor = matrices[criterio][origen][destino]
-            ruta_str = " → ".join(G.nodes[n]["cod"] for n in camino)
-            st.success(f"**Ruta:** {ruta_str}  —  **Valor total:** {valor:.2f} {UNIDAD[criterio]}")
-
-# ═══════════════════════════════════════════════════════════════════════════
-# MATRICES
-# ═══════════════════════════════════════════════════════════════════════════
+            st.success(f"**Ruta:** {' → '.join(G.nodes[n]['cod'] for n in camino)}  —  **Valor total:** {valor:.2f} {UNIDAD[criterio]}")
 
 elif seccion == "📊 Matrices":
     st.title("📊 Matrices de Caminos Mínimos")
@@ -538,19 +710,9 @@ elif seccion == "📊 Matrices":
 
     st.dataframe(tabla, use_container_width=True, height=600, hide_index=True)
 
-# ═══════════════════════════════════════════════════════════════════════════
-# EXPORTAR EXCEL
-# ═══════════════════════════════════════════════════════════════════════════
-
 elif seccion == "⬇️ Exportar Excel":
     st.title("⬇️ Exportar Matrices a Excel")
-
-    st.write("""
-    Descarga el archivo Excel con:
-    - 📊 Matrices de tiempo, distancia y costo (28×28)
-    - 📋 Inventario de atractivos
-    - 📅 7 itinerarios optimizados
-    """)
+    st.write("Descarga el archivo Excel con las matrices de tiempo, distancia y costo.")
 
     excel_bytes = generar_excel_bytes(matrices, G)
 
