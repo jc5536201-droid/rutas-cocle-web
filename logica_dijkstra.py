@@ -674,4 +674,100 @@ def main():
                         
                         row = 3
                         for dia, config in DIAS_CONFIG.items():
-                            orden, costo, _ = ruta_circular_
+                            orden, costo, _ = ruta_circular_optima(
+                                config["destinos"], 
+                                config["hub"], 
+                                matrices,
+                                "tiempo"
+                            )
+                            if orden:
+                                ruta = [config["hub"]] + orden + [config["hub"]]
+                                ruta_str = " → ".join(str(n) for n in ruta)
+                                
+                                # Calcular distancia
+                                dist_total = 0
+                                for i in range(len(ruta)-1):
+                                    dist_total += matrices["distancia"][ruta[i]][ruta[i+1]]
+                                
+                                ws.cell(row=row, column=1, value=dia)
+                                ws.cell(row=row, column=2, value=config["zona"])
+                                ws.cell(row=row, column=3, value=f"{config['hub']} ({ATRACTIVOS[config['hub']]['cod']})")
+                                ws.cell(row=row, column=4, value=ruta_str)
+                                ws.cell(row=row, column=5, value=round(costo, 1))
+                                ws.cell(row=row, column=6, value=round(dist_total, 1))
+                                row += 1
+                        
+                        # Ajustar anchos
+                        for col in ['A', 'B', 'C', 'D', 'E', 'F']:
+                            ws.column_dimensions[col].width = 20
+                        
+                        # Guardar en buffer
+                        buffer = BytesIO()
+                        wb.save(buffer)
+                        buffer.seek(0)
+                        
+                        # Descargar
+                        st.download_button(
+                            label="📥 Descargar Excel",
+                            data=buffer,
+                            file_name="rutas_turisticas.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            use_container_width=True
+                        )
+                        st.success("✅ Archivo Excel generado exitosamente!")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error al generar Excel: {e}")
+        
+        with col2:
+            st.markdown("### 📋 Exportar a CSV")
+            st.markdown("Descarga las rutas en formato CSV")
+            
+            # Preparar datos para CSV
+            G = construir_grafo()
+            matrices = calcular_matrices(G)
+            
+            csv_data = []
+            for dia, config in DIAS_CONFIG.items():
+                orden, costo, _ = ruta_circular_optima(
+                    config["destinos"], 
+                    config["hub"], 
+                    matrices,
+                    "tiempo"
+                )
+                if orden:
+                    ruta = [config["hub"]] + orden + [config["hub"]]
+                    ruta_str = " → ".join(str(n) for n in ruta)
+                    
+                    # Calcular distancia
+                    dist_total = 0
+                    for i in range(len(ruta)-1):
+                        dist_total += matrices["distancia"][ruta[i]][ruta[i+1]]
+                    
+                    csv_data.append({
+                        "Día": dia,
+                        "Zona": config["zona"],
+                        "Hub": config["hub"],
+                        "Ruta": ruta_str,
+                        "Tiempo (min)": round(costo, 1),
+                        "Distancia (km)": round(dist_total, 1)
+                    })
+            
+            df_csv = pd.DataFrame(csv_data)
+            
+            # Botón de descarga CSV
+            csv = df_csv.to_csv(index=False)
+            st.download_button(
+                label="📥 Descargar CSV",
+                data=csv,
+                file_name="rutas_turisticas.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 5. EJECUCIÓN
+# ═══════════════════════════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    main()
