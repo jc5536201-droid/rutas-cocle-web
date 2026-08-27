@@ -1,13 +1,13 @@
 """
 TESIS: OPTIMIZACIÓN DE RUTAS TURÍSTICAS EN COCLÉ, PANAMÁ
 Aplicación web con Streamlit
-Autor: [Tu nombre]
 """
 
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
+import matplotlib.pyplot as plt
+import networkx as nx
+import numpy as np
 
 # Importar la lógica de negocio
 from logica_dijkstra import (
@@ -17,7 +17,8 @@ from logica_dijkstra import (
     construir_grafo,
     calcular_todas_matrices,
     ruta_circular_optima,
-    diagnosticar_grafo
+    diagnosticar_grafo,
+    generar_excel_bytes
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -61,7 +62,6 @@ with st.sidebar:
             
             st.markdown("#### 📊 Resultados")
             
-            # Métricas principales
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Nodos", diag["total_nodos"])
@@ -103,6 +103,55 @@ with st.sidebar:
     
     st.markdown("---")
     st.markdown("**👨‍💻 Tesista:** [Tu nombre]")
+
+# ═══════════════════════════════════════════════════════════════════════════
+# FUNCIONES DE VISUALIZACIÓN CON MATPLOTLIB
+# ═══════════════════════════════════════════════════════════════════════════
+
+def dibujar_mapa(ruta, color, titulo=""):
+    """Dibuja el mapa de la ruta usando Matplotlib."""
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Dibujar aristas de la ruta
+    for i in range(len(ruta)-1):
+        x0, y0 = POSICIONES[ruta[i]]
+        x1, y1 = POSICIONES[ruta[i+1]]
+        
+        # Color especial para la arista 15-17
+        es_especial = (ruta[i] == 15 and ruta[i+1] == 17) or (ruta[i] == 17 and ruta[i+1] == 15)
+        color_linea = '#FF0000' if es_especial else color
+        width = 4 if es_especial else 2
+        
+        ax.plot([x0, x1], [y0, y1], color=color_linea, linewidth=width, alpha=0.8)
+    
+    # Dibujar nodos
+    for nid in ruta:
+        x, y = POSICIONES[nid]
+        
+        # Tamaño y color especial para 15 y 17
+        es_especial = nid in [15, 17]
+        size = 300 if es_especial else 200
+        marker = 's' if es_especial else 'o'
+        color_nodo = '#FF0000' if es_especial else color
+        
+        ax.scatter(x, y, s=size, c=color_nodo, marker=marker, 
+                  edgecolors='white', linewidth=2, zorder=5)
+        
+        # Etiqueta
+        ax.annotate(ATRACTIVOS[nid]['cod'], (x, y), 
+                   xytext=(0, 10), textcoords='offset points',
+                   ha='center', va='bottom', fontsize=10, fontweight='bold',
+                   bbox=dict(boxstyle='round,pad=0.3', facecolor='white', alpha=0.8))
+    
+    ax.set_xlim(-0.05, 1.05)
+    ax.set_ylim(-0.05, 1.05)
+    ax.set_aspect('equal')
+    ax.axis('off')
+    
+    if titulo:
+        ax.set_title(titulo, fontsize=14, fontweight='bold')
+    
+    return fig
 
 # ═══════════════════════════════════════════════════════════════════════════
 # TABS
@@ -255,65 +304,18 @@ with tab2:
             
             st.dataframe(pd.DataFrame(tramos_data), use_container_width=True, hide_index=True)
             
-            # Mapa interactivo
+            # 🗺️ MAPA CON MATPLOTLIB
             st.markdown("### 🗺️ Mapa de la Ruta")
             
-            fig = go.Figure()
-            
-            # Dibujar aristas de la ruta
-            for i in range(len(ruta)-1):
-                x0, y0 = POSICIONES[ruta[i]]
-                x1, y1 = POSICIONES[ruta[i+1]]
-                
-                # Color especial para la arista 15-17
-                es_arista_especial = (ruta[i] == 15 and ruta[i+1] == 17) or (ruta[i] == 17 and ruta[i+1] == 15)
-                color = "#FF0000" if es_arista_especial else config['color']
-                width = 5 if es_arista_especial else 3
-                
-                fig.add_trace(go.Scatter(
-                    x=[x0, x1],
-                    y=[y0, y1],
-                    mode='lines',
-                    line=dict(color=color, width=width),
-                    showlegend=False,
-                    hoverinfo='none'
-                ))
-            
-            # Dibujar nodos
-            for nid in ruta:
-                x, y = POSICIONES[nid]
-                fig.add_trace(go.Scatter(
-                    x=[x],
-                    y=[y],
-                    mode='markers+text',
-                    marker=dict(
-                        size=25 if nid in [15, 17] else 20,
-                        color='#FF0000' if nid in [15, 17] else config['color'],
-                        symbol='star' if nid in [15, 17] else 'circle',
-                        line=dict(color='white', width=2)
-                    ),
-                    text=ATRACTIVOS[nid]['cod'],
-                    textposition='top center',
-                    name=ATRACTIVOS[nid]['nombre'],
-                    hovertemplate=f"<b>{ATRACTIVOS[nid]['nombre']}</b><br>ID: {nid}<extra></extra>"
-                ))
-            
-            fig.update_layout(
-                height=500,
-                showlegend=False,
-                xaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[0, 1]),
-                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False, range=[0, 1]),
-                plot_bgcolor='rgba(0,0,0,0)',
-                margin=dict(l=20, r=20, t=20, b=20)
-            )
-            
-            st.plotly_chart(fig, use_container_width=True)
+            titulo = f"Día {dia_seleccionado}: {config['zona']}"
+            fig = dibujar_mapa(ruta, config['color'], titulo)
+            st.pyplot(fig)
             
             st.info("""
             📖 **Leyenda del mapa:**
-            - ⭐ **Estrella roja:** Nodos 15 (Penonomé) y 17 (Antón)
-            - 🔴 **Línea roja:** Arista directa 15-17
-            - 🔵 **Círculo azul:** Otros atractivos
+            - 🔴 **Línea roja:** Arista directa 15-17 (Penonomé → Antón)
+            - ⬛ **Cuadrado rojo:** Nodos 15 (Penonomé) y 17 (Antón)
+            - 🔵 **Círculo:** Otros atractivos
             """)
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -352,11 +354,36 @@ with tab3:
         height=600
     )
     
+    # Mostrar valores clave
+    st.markdown("### 🔍 Valores Clave")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric(
+            "15 → 17 (Penonomé → Antón)",
+            f"{matrices['distancia'][15][17]} km",
+            delta=f"{matrices['tiempo'][15][17]} min"
+        )
+    
+    with col2:
+        es_correcto = matrices['distancia'][15][17] == 22.6
+        st.metric(
+            "¿Usa ruta directa?",
+            "✅" if es_correcto else "❌"
+        )
+    
+    with col3:
+        st.metric(
+            "Costo 15 → 17",
+            f"${matrices['costo'][15][17]:.2f}"
+        )
+    
     st.info("""
     **📖 Leyenda:**
     - Los valores representan la distancia mínima entre cada par de nodos
     - ∞ significa que no hay conexión posible
     - La diagonal principal siempre es 0 (distancia a sí mismo)
+    - **15 → 17 DEBE SER 22.6 km** (ruta directa)
     """)
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -409,21 +436,54 @@ with tab4:
             data=csv,
             file_name="rutas_turisticas.csv",
             mime="text/csv",
-            use_container_width=True
+            use_container_width=True,
+            type="primary"
         )
     
     with col2:
-        st.markdown("### 📋 Información")
-        st.markdown("""
-        **Datos incluidos:**
-        - Día y zona
-        - Hotel base (hub)
-        - Ruta optimizada
-        - Tiempo total (minutos)
-        - Distancia total (km)
+        st.markdown("### 📊 Exportar a Excel")
+        st.markdown("Descarga todas las matrices y rutas en un archivo Excel")
         
-        **Formato:** CSV (Excel compatible)
-        """)
+        if st.button("📥 Generar Excel", type="primary", use_container_width=True):
+            with st.spinner("⏳ Generando archivo Excel..."):
+                try:
+                    G = construir_grafo()
+                    matrices, _ = calcular_todas_matrices(G)
+                    
+                    # Calcular resultados
+                    resultados = {}
+                    for dia, config in DIAS_CONFIG.items():
+                        orden, costo, _ = ruta_circular_optima(
+                            config["destinos"], 
+                            config["hub"], 
+                            matrices,
+                            "tiempo"
+                        )
+                        if orden:
+                            ruta = [config["hub"]] + orden + [config["hub"]]
+                            resultados[dia] = {
+                                "ruta": ruta,
+                                "tiempo": costo,
+                                "destinos": len(config["destinos"])
+                            }
+                    
+                    # Generar Excel
+                    excel_bytes = generar_excel_bytes(matrices, G, resultados)
+                    
+                    st.download_button(
+                        label="📥 Descargar Excel",
+                        data=excel_bytes,
+                        file_name="rutas_turisticas_completas.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                    st.success("✅ Excel generado exitosamente!")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error al generar Excel: {e}")
+    
+    st.markdown("---")
+    st.caption("📋 Los datos incluyen: Día, Zona, Hub, Ruta optimizada, Tiempo y Distancia")
 
 st.markdown("---")
 st.caption("🏝️ Sistema de Optimización de Rutas Turísticas - Coclé, Panamá | Tesis de Grado")
